@@ -1,0 +1,87 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# Camera Parameters. G1 D435i RGB Camera
+#--------------------------------------------------------------------------------------------
+
+Camera.type: "PinHole"
+
+# Camera calibration and distortion parameters (OpenCV)
+Camera.fx: 906.89306640625
+Camera.fy: 906.5679321289062
+Camera.cx: 654.0197143554688
+Camera.cy: 387.77459716796875
+
+Camera.k1: 0.0
+Camera.k2: 0.0
+Camera.p1: 0.0
+Camera.p2: 0.0
+Camera.k3: 0.0
+
+# Camera resolution
+Camera.width: 1280
+Camera.height: 720
+
+# Camera frames per second
+Camera.fps: 30.0
+
+# Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
+Camera.RGB: 1
+
+# Image scale, it changes the image size to be processed (<1.0: reduce, >1.0: increase)
+Camera.imageScale: 1.0
+
+#--------------------------------------------------------------------------------------------
+# IMU Parameters. D435i Bosch BMI055
+#--------------------------------------------------------------------------------------------
+
+# Acceleration noise density (continuous-time)
+IMU.NoiseAcc: 0.0028  # m/s^2/sqrt(Hz) - from D435i BMI055 datasheet
+
+# Gyroscope noise density (continuous-time)
+IMU.NoiseGyro: 0.00016  # rad/s/sqrt(Hz) - from D435i BMI055 datasheet
+
+# Acceleration random walk (continuous-time)
+IMU.AccWalk: 0.00086  # m/s^3/sqrt(Hz) - from D435i BMI055 datasheet
+
+# Gyroscope random walk (continuous-time)
+IMU.GyroWalk: 0.000022  # rad/s^2/sqrt(Hz) - from D435i BMI055 datasheet
+
+# IMU Frequency
+IMU.Frequency: 200  # Hz (D435i IMU runs at 200Hz)
+
+# Transformation from camera to body-frame (imu)
+# D435i: IMU is located below the RGB camera
+# Factory calibration: approximately 6mm offset in Z
+Tbc: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [1.0, 0.0, 0.0, 0.0,
+          0.0, 1.0, 0.0, 0.0,
+          0.0, 0.0, 1.0, 0.006,
+          0.0, 0.0, 0.0, 1.0]
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+
+ORBextractor.nFeatures: 1000
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3
+Viewer.ViewpointX: 0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500
