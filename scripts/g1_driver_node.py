@@ -19,17 +19,6 @@ from std_msgs.msg import String, Float64
 import std_msgs.msg
 
 
-def cv2_to_imgmsg(cv_img, encoding):
-    msg = Image()
-    msg.height = cv_img.shape[0]
-    msg.width = cv_img.shape[1]
-    msg.encoding = encoding
-    msg.is_bigendian = 0
-    msg.step = cv_img.strides[0]
-    msg.data = cv_img.tobytes()
-    return msg
-
-
 class G1DriverNode(Node):
     def __init__(self, bag_path, mode):
         super().__init__('g1_driver_node')
@@ -42,24 +31,28 @@ class G1DriverNode(Node):
         self.sub_exp_ack_name = "/mono_py_driver/exp_settings_ack"
         self.pub_img_to_agent_name = "/mono_py_driver/img_msg"
         self.pub_timestep_to_agent_name = "/mono_py_driver/timestep_msg"
+        self.pub_imu_to_agent_name = "/mono_py_driver/imu_msg"
         
         self.publish_exp_config_ = self.create_publisher(String, self.pub_exp_config_name, 1)
         self.subscribe_exp_ack_ = self.create_subscription(String, self.sub_exp_ack_name, self.ack_callback, 10)
         self.publish_img_msg_ = self.create_publisher(Image, self.pub_img_to_agent_name, 1)
         self.publish_timestep_msg_ = self.create_publisher(Float64, self.pub_timestep_to_agent_name, 1)
+        self.publish_imu_msg_ = self.create_publisher(Imu, self.pub_imu_to_agent_name, 100)
         
         self.send_config = True
-        self.settings_name = "G1"  # Matches the C++ node settings_name parameter
+        self.settings_name = "G1"
         
         # Read bag
         self.bag_path = Path(bag_path).expanduser()
         self.frames = []
+        self.imu_buffer = []
         self.read_bag()
         
         self.frame_idx = 0
         
     def read_bag(self):
         frames = {}
+        imu_all = []
         
         with AnyReader([self.bag_path], default_typestore=self.typestore) as reader:
             for connection, timestamp, rawdata in reader.messages():
@@ -68,12 +61,13 @@ class G1DriverNode(Node):
                 ts = round(timestamp * 1e-9, 3)
                 
                 if ts not in frames:
-                    frames[ts] = {"image": None, "imu": None}
+                    frames[ts] = {"image": None, "imu": []}
                 
-                if topic == "/camera/color/image_raw/compressed" and self.mode == "mono":
+                if topic == "/camera/color/image_raw/compressed" and self.mode in ["mono", "mono_inertial"]:
                     frames[ts]["image"] = msg
                 elif topic == "/camera/imu":
-                    frames[ts]["imu"] = msg
+                    frames[ts]["imu"].append(msg)
+                    imu_all.append((ts, msg))
         
         self.frames = [
             (ts, f["image"], f["imu"]) 
@@ -81,10 +75,11 @@ class G1DriverNode(Node):
             if f["image"] is not None
         ]
         
-        self.get_logger().info(f"Loaded {len(self.frames)} frames from bag")
+        self.imu_all = imu_all
+        self.get_logger().info(f"Loaded {len(self.frames)} frames and {len(imu_all)} IMU readings from bag")
     
     def ack_callback(self, msg):
-        print(f"Got ack: {msg.data}")
+        self.get_logger().info(f"Got ack: {msg.data}")
         if msg.data == "ACK":
             self.send_config = False
     
@@ -94,20 +89,46 @@ class G1DriverNode(Node):
             msg.data = self.settings_name
             self.publish_exp_config_.publish(msg)
     
+    def publish_imu(self, imu_msg_ros, timestamp):
+        imu = Imu()
+        imu.header.stamp.sec = int(timestamp)
+        imu.header.stamp.nanosec = int((timestamp - int(timestamp)) * 1e9)
+        imu.header.frame_id = "imu"
+        imu.angular_velocity.x = imu_msg_ros.angular_velocity.x
+        imu.angular_velocity.y = imu_msg_ros.angular_velocity.y
+        imu.angular_velocity.z = imu_msg_ros.angular_velocity.z
+        imu.linear_acceleration.x = imu_msg_ros.linear_acceleration.x
+        imu.linear_acceleration.y = imu_msg_ros.linear_acceleration.y
+        imu.linear_acceleration.z = imu_msg_ros.linear_acceleration.z
+        self.publish_imu_msg_.publish(imu)
+    
     def publish_frame(self, idx):
         if idx >= len(self.frames):
             self.get_logger().info("Bag playback complete")
             return False
         
-        ts, img_msg, imu_msg = self.frames[idx]
+        ts, img_msg, imu_msgs = self.frames[idx]
         
-        # Decompress and publish compressed image
+        # Publish all IMU readings for this frame
+        for imu_msg in imu_msgs:
+            self.publish_imu(imu_msg, ts)
+        
+        # Decompress and publish image
         if img_msg is not None:
             np_arr = np.frombuffer(img_msg.data, np.uint8)
             cv_img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            cv_img = cv2.resize(cv_img, (640, 480))
             
-            img_msg_ros = cv2_to_imgmsg(cv_img, encoding="bgr8")
+            h, w = cv_img.shape[:2]
+            img_msg_ros = Image()
+            img_msg_ros.header.stamp.sec = int(ts)
+            img_msg_ros.header.stamp.nanosec = int((ts - int(ts)) * 1e9)
+            img_msg_ros.header.frame_id = "camera"
+            img_msg_ros.height = h
+            img_msg_ros.width = w
+            img_msg_ros.encoding = "bgr8"
+            img_msg_ros.is_bigendian = 0
+            img_msg_ros.step = w * 3
+            img_msg_ros.data = cv_img.tobytes()
             
             timestep_msg = Float64()
             timestep_msg.data = float(ts)
@@ -121,8 +142,12 @@ class G1DriverNode(Node):
 def main():
     parser = argparse.ArgumentParser(description="G1 Driver Node for ORB-SLAM3")
     parser.add_argument("--bag", required=True, help="Path to ROS1 bag file")
-    parser.add_argument("--mode", required=True, choices=["mono", "stereo"], help="SLAM mode")
+    parser.add_argument("--mode", required=True, choices=["mono", "mono_inertial", "stereo"], help="SLAM mode")
     args = parser.parse_args()
+    
+    if args.mode == "stereo":
+        print("Support for stereo is not available yet")
+        sys.exit(1)
     
     rclpy.init()
     node = G1DriverNode(args.bag, args.mode)

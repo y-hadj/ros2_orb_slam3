@@ -200,3 +200,20 @@ install(PROGRAMS
 
 
 ament_package()
+
+# Add mono inertial executable
+add_executable(mono_inertial_node_cpp
+  src/mono_inertial_example.cpp
+)
+
+ament_target_dependencies(mono_inertial_node_cpp
+  PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
+)
+
+target_link_libraries(mono_inertial_node_cpp PUBLIC orb_slam3_lib)
+
+install(TARGETS mono_inertial_node_cpp
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
